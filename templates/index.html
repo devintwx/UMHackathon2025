@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Assistant</title>
+    <script src="https://unpkg.com/@dotlottie/player-component@2.7.12/dist/dotlottie-player.mjs" type="module"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: white;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        }
+
+        #content {
+            display: none;
+            text-align: center;
+        }
+
+        /* Add this new rule */
+        dotlottie-player {
+            display: none;
+        }
+
+        /* Add this to show animation when active */
+        .show-animation dotlottie-player {
+            display: block;
+        }
+
+        #transcript {
+            font-size: 24px;
+            margin-bottom: 20px;
+            min-height: 30px;
+            color: black;
+            font-weight: bold;
+        }
+
+        #debug-popup {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            width: 300px;
+            max-height: 400px;
+            overflow-y: auto;
+            background-color: #f1f1f1;
+            border: 1px solid #ccc;
+            padding: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            display: none;
+        }
+
+        #debug-toggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            z-index: 1001;
+        }
+
+        #debug-content {
+            margin-top: 10px;
+            font-size: 14px;
+            white-space: pre-wrap;
+        }
+
+        .listening-indicator {
+            width: 20px;
+            height: 20px;
+            background-color: red;
+            border-radius: 50%;
+            display: none;
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(0.95);
+                opacity: 0.7;
+            }
+
+            50% {
+                transform: scale(1.1);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(0.95);
+                opacity: 0.7;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="listening-indicator" id="listeningIndicator"></div>
+    <button id="debug-toggle">Debug</button>
+    <div id="debug-popup">
+        <h3>Transcript History</h3>
+        <div id="debug-content"></div>
+    </div>
+
+    <div id="content">
+        <div id="transcript"></div>
+        <dotlottie-player id="animation"
+            src="https://lottie.host/c067ef8e-da79-40af-81d0-f755d45b0e28/vDamLpzKV8.lottie" background="transparent"
+            speed="1" style="width: 300px; height: 300px" loop autoplay>
+        </dotlottie-player>
+    </div>
+
+    <script>
+        const contentDiv = document.getElementById('content');
+        const transcriptDiv = document.getElementById('transcript');
+        const debugPopup = document.getElementById('debug-popup');
+        const debugContent = document.getElementById('debug-content');
+        const debugToggle = document.getElementById('debug-toggle');
+        const listeningIndicator = document.getElementById('listeningIndicator');
+        const transcriptHistory = [];
+        let currentTranscript = "";  // To keep track of current displayed transcript
+        const animation = document.getElementById('animation');
+
+        debugToggle.addEventListener('click', () => {
+            debugPopup.style.display = debugPopup.style.display === 'block' ? 'none' : 'block';
+        });
+
+        function cleanTranscript(rawText) {
+            return rawText.replace(/hey grab[,]?\s*/i, '')
+                .trim()
+                .replace(/\.$/, '');
+        }
+
+        function checkStatus() {
+                fetch('/status')
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log("Status update:", data);
+
+                        if (data.keyword_detected) {
+                            console.log("Wake word detected");
+                            contentDiv.classList.add('show-animation');
+                            animation.play();
+                            currentTranscript = "";
+                            transcriptDiv.textContent = "Recording...";
+                            listeningIndicator.style.display = 'block';
+                            contentDiv.style.display = 'block';
+
+                            const timestamp = new Date().toLocaleTimeString();
+                            transcriptHistory.push(`${timestamp}: Recording started (2 seconds)`);
+                            debugContent.textContent = transcriptHistory.join('\n\n');
+                            debugContent.scrollTop = debugContent.scrollHeight;
+                        }
+                        else if (data.is_recording) {
+                            contentDiv.classList.add('show-animation');
+                            animation.play();
+                            listeningIndicator.style.display = 'block';
+                            contentDiv.style.display = 'block';
+                            transcriptDiv.textContent = "Recording...";
+                        }
+                        else if (data.transcript && data.has_new_transcript) {
+                            console.log("New transcript available");
+                            animation.stop();
+                            const cleanedText = cleanTranscript(data.transcript);
+                            if (cleanedText) {
+                                currentTranscript = cleanedText.charAt(0).toUpperCase() + cleanedText.slice(1);
+                                transcriptDiv.textContent = currentTranscript;
+
+                                const timestamp = new Date().toLocaleTimeString();
+                                transcriptHistory.push(`${timestamp}: ${currentTranscript}`);
+                                debugContent.textContent = transcriptHistory.join('\n\n');
+                                debugContent.scrollTop = debugContent.scrollHeight;
+
+                                // Check if we should play TTS
+                                if (currentTranscript.toLowerCase().includes("say hi")) {
+                                    // The TTS will be handled by the backend
+                                    console.log("TTS greeting triggered");
+                                }
+                            }
+                        }
+                        else {
+                            contentDiv.classList.remove('show-animation');
+                            animation.stop();
+                            listeningIndicator.style.display = 'none';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        const timestamp = new Date().toLocaleTimeString();
+                        transcriptHistory.push(`${timestamp}: Error fetching status: ${error.message}`);
+                        debugContent.textContent = transcriptHistory.join('\n\n');
+                        debugContent.scrollTop = debugContent.scrollHeight;
+                    });
+            }
+
+        // Initial check and then every 500ms
+        checkStatus();
+        
+        setInterval(checkStatus, 500);
+
+        window.addEventListener('load', () => {
+            animation.stop();
+        });
+
+    </script>
+</body>
+
+</html>
